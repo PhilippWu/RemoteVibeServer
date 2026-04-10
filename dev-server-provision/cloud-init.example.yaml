@@ -1,0 +1,155 @@
+#cloud-config
+# =============================================================================
+# RemoteVibeServer — Cloud-Init Configuration
+# =============================================================================
+# This file is the single entry-point for provisioning a self-hosted remote
+# development server.  Fill in every <PLACEHOLDER> before use.
+#
+# Usage (Hetzner example):
+#   hcloud server create \
+#     --name dev-server \
+#     --type cpx31 \
+#     --image ubuntu-24.04 \
+#     --user-data-from-file cloud-init.example.yaml
+#
+# IMPORTANT: This file contains secrets at deploy-time.  NEVER commit a
+#            filled-in copy to version control.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# 1. Package bootstrap
+# ---------------------------------------------------------------------------
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - wget
+  - git
+  - jq
+  - unzip
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - ufw
+  - fail2ban
+  - certbot
+
+# ---------------------------------------------------------------------------
+# 2. Secure environment file
+# ---------------------------------------------------------------------------
+write_files:
+  - path: /etc/dev-server/env
+    permissions: "0600"
+    owner: root:root
+    content: |
+      # ── Domain & DNS ──────────────────────────────────────────────────
+      DOMAIN=<YOUR_DOMAIN>
+      SUBDOMAIN=<YOUR_SUBDOMAIN>
+      EMAIL=<YOUR_EMAIL>
+
+      # ── Cloudflare ────────────────────────────────────────────────────
+      CLOUDFLARE_API_TOKEN=<YOUR_CLOUDFLARE_API_TOKEN>
+      CLOUDFLARE_ZONE_ID=<YOUR_CLOUDFLARE_ZONE_ID>
+
+      # ── Coder ─────────────────────────────────────────────────────────
+      CODER_URL=https://<YOUR_SUBDOMAIN>.<YOUR_DOMAIN>
+      CODER_ACCESS_URL=https://<YOUR_SUBDOMAIN>.<YOUR_DOMAIN>
+      # Admin login password — min 8 chars, no spaces (Coder requirement).
+      # Login with: email = EMAIL above, username: admin
+      CODER_ADMIN_PASSWORD=<YOUR_ADMIN_PASSWORD>
+
+      # ── AI Agent Flags (true / false) ─────────────────────────────────
+      ENABLE_AGENT_COPILOT=false
+      ENABLE_AGENT_CLAUDE=false
+      ENABLE_AGENT_GEMINI=false
+      ENABLE_AGENT_CODEX=false
+      ENABLE_AGENT_OPENCODE=false
+
+      # ── AI Agent API Keys (leave empty to skip) ───────────────────────
+      OPENAI_API_KEY=
+      ANTHROPIC_API_KEY=
+      GOOGLE_API_KEY=
+      GITHUB_TOKEN=
+
+      # ── Codex CLI OpenAI OAuth (leave empty if using API key) ──────
+      # Obtained via the OpenAI Device Flow (ChatGPT Plus/Pro plan).
+      # If set, Codex CLI will use this to complete the PKCE exchange
+      # on first launch instead of requiring an interactive login.
+      CODEX_OPENAI_AUTH_CODE=
+
+      # ── OpenCode Provider Selection ────────────────────────────────────
+      # Supported values: opencode-zen, opencode-go, openai, github-copilot,
+      #                   anthropic, google (leave empty for default)
+      OPENCODE_PROVIDER=
+
+  - path: /etc/dev-server/bootstrap.sh
+    permissions: "0700"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      # Thin bootstrap — downloads the full provisioning suite and runs it.
+      set -euo pipefail
+
+      # Suppress interactive prompts from apt/dpkg and needrestart during provisioning.
+      export DEBIAN_FRONTEND=noninteractive
+      export NEEDRESTART_MODE=a
+
+      # cloud-init runcmd runs without a login shell — HOME is not set.
+      export HOME="${HOME:-/root}"
+
+      REPO_URL="https://raw.githubusercontent.com/PhilippWu/RemoteVibeServer/main/dev-server-provision"
+      PROVISION_DIR="/opt/dev-server-provision"
+
+      mkdir -p "$PROVISION_DIR/infra" "$PROVISION_DIR/coder"
+
+      echo "[bootstrap] Downloading provisioning scripts …"
+      for f in setup.sh infra/dns.sh infra/proxy.sh infra/agents.sh coder/Dockerfile coder/devcontainer.json coder/main.tf; do
+        curl -fsSL "$REPO_URL/$f" -o "$PROVISION_DIR/$f"
+      done
+      chmod +x "$PROVISION_DIR/setup.sh" "$PROVISION_DIR/infra/"*.sh
+
+      echo "[bootstrap] Starting setup …"
+      exec "$PROVISION_DIR/setup.sh"
+
+# ---------------------------------------------------------------------------
+# 3. Run bootstrap on first boot
+# ---------------------------------------------------------------------------
+runcmd:
+  # Install Docker (official method)
+  - |
+    export DEBIAN_FRONTEND=noninteractive
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+      | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+      https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+      > /etc/apt/sources.list.d/docker.list
+    apt-get update -y
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+  # Enable and start Docker
+  - systemctl enable --now docker
+
+  # Configure firewall
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+
+  # Enable fail2ban
+  - systemctl enable --now fail2ban
+
+  # Run the bootstrap script
+  - /etc/dev-server/bootstrap.sh 2>&1 | tee /var/log/dev-server-provision.log
+
+final_message: |
+  ========================================
+  RemoteVibeServer provisioning complete.
+  Log: /var/log/dev-server-provision.log
+  ========================================
