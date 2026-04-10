@@ -49,6 +49,13 @@ _CLOUD_INIT_TEMPLATE = textwrap.dedent("""\
         permissions: "0600"
         owner: root:root
         content: |
+          # ── Deployment mode ───────────────────────────────────────────────
+          # IP_ONLY=true  → no domain / TLS; Coder is served via plain HTTP on
+          #                 the server's public IP (set by setup.sh at boot).
+          # USE_CLOUDFLARE=false → domain is provided but DNS is managed manually.
+          IP_ONLY={ip_only}
+          USE_CLOUDFLARE={use_cloudflare}
+
           # ── Domain & DNS ──────────────────────────────────────────────────
           DOMAIN={domain}
           SUBDOMAIN={subdomain}
@@ -59,8 +66,10 @@ _CLOUD_INIT_TEMPLATE = textwrap.dedent("""\
           CLOUDFLARE_ZONE_ID={cloudflare_zone_id}
 
           # ── Coder ─────────────────────────────────────────────────────────
-          CODER_URL=https://{subdomain}.{domain}
-          CODER_ACCESS_URL=https://{subdomain}.{domain}
+          # CODER_URL / CODER_ACCESS_URL are set dynamically by setup.sh
+          # (ip_only: http://<PUBLIC_IP>  |  domain: https://<subdomain>.<domain>)
+          CODER_URL={coder_url}
+          CODER_ACCESS_URL={coder_url}
           # Admin login password (Coder requires ≥ 8 chars, no spaces).
           # Login email is the address entered above.  Username: admin
           CODER_ADMIN_PASSWORD={coder_admin_password}
@@ -161,6 +170,7 @@ def generate_cloud_init(config: dict[str, Any]) -> str:
 
     *config* must contain the keys used in ``_CLOUD_INIT_TEMPLATE``.
     Boolean agent flags are normalised to ``"true"`` / ``"false"``.
+    For ip_only mode the CODER_URL is left blank (setup.sh fills it at boot).
     """
     # Normalise booleans → lowercase strings
     normalised: dict[str, str] = {}
@@ -169,12 +179,24 @@ def generate_cloud_init(config: dict[str, Any]) -> str:
             normalised[key] = "true" if value else "false"
         else:
             normalised[key] = str(value) if value is not None else ""
+
+    # Compute coder_url: empty for ip_only (setup.sh will fill it at boot),
+    # otherwise https://<subdomain>.<domain>
+    if config.get("ip_only"):
+        normalised["coder_url"] = ""
+    else:
+        subdomain = normalised.get("subdomain", "")
+        domain = normalised.get("domain", "")
+        normalised["coder_url"] = f"https://{subdomain}.{domain}" if subdomain and domain else ""
+
     return _CLOUD_INIT_TEMPLATE.format(**normalised)
 
 
 def default_config() -> dict[str, Any]:
     """Return a config dict pre-filled with safe defaults."""
     return {
+        "ip_only": False,
+        "use_cloudflare": True,
         "domain": "",
         "subdomain": "dev",
         "email": "",
@@ -202,6 +224,8 @@ def default_config() -> dict[str, Any]:
 # The key order used when writing RVSconfig.yml — keeps the output tidy and
 # predictable.
 _RVS_KEY_ORDER: list[str] = [
+    "ip_only",
+    "use_cloudflare",
     "domain",
     "subdomain",
     "email",

@@ -6,14 +6,62 @@ This guide walks through deploying a fully automated remote development server f
 
 1. **A cloud provider account** — Hetzner is recommended (affordable, EU-based, great API). Any provider supporting cloud-init works (AWS, GCP, Azure, DigitalOcean, etc.).
 
-2. **A domain name** — with DNS managed by Cloudflare.
+2. **A domain name** *(optional)* — required only for HTTPS with automatic TLS. See **IP-only Quickstart** below if you don't have one.
 
-3. **A Cloudflare API token** — with `Zone → DNS → Edit` permission for your domain's zone.
+3. **A Cloudflare API token** *(optional)* — with `Zone → DNS → Edit` permission. Required only when Cloudflare manages your DNS. For manual DNS or IP-only deployments this is not needed.
 
 4. **Server requirements:**
    - Ubuntu 24.04 LTS
    - Minimum: 2 vCPUs, 4 GB RAM, 40 GB SSD (Hetzner CPX21 or larger)
    - Recommended: 4 vCPUs, 8 GB RAM, 80 GB SSD (Hetzner CPX31)
+
+## IP-only Quickstart (no domain required)
+
+If you don't have a domain name, you can deploy RemoteVibeServer in **IP-only
+mode** — Coder is served over plain HTTP on your server's public IP (port 80).
+
+No Cloudflare token, no domain, no TLS certificate needed.
+
+### 1. Generate your config
+
+Run the configurator:
+
+```bash
+cd dev-server-provision
+python -m configurator
+```
+
+When asked *"Do you have a domain name?"* — answer **No**.  
+The configurator will set `ip_only: true` in your config automatically.
+
+### 2. Deploy via cloud-init
+
+```bash
+hcloud server create \
+  --name dev-server \
+  --type cpx21 \
+  --image ubuntu-24.04 \
+  --location nbg1 \
+  --user-data-from-file cloud-init.yaml
+```
+
+### 3. Access Coder
+
+After ~5 minutes:
+
+```
+http://<server-public-ip>
+```
+
+Find the IP with:
+
+```bash
+hcloud server describe dev-server | grep "Public Net"
+# or on the server:
+cat /etc/dev-server/status
+```
+
+> **Note:** HTTP-only means traffic is unencrypted. Suitable for local/private networks or quick evaluation. For production use, add a domain and enable HTTPS.
 
 ## Step 1: Prepare the Cloud-Init File
 

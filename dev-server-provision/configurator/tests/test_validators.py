@@ -155,6 +155,7 @@ class TestPreflightChecks(unittest.TestCase):
             "email": "admin@example.com",
             "cloudflare_api_token": "a" * 40,
             "cloudflare_zone_id": "a" * 32,
+            "coder_admin_password": "securepass1",
             "enable_agent_copilot": False,
             "enable_agent_claude": False,
             "enable_agent_gemini": False,
@@ -342,6 +343,102 @@ class TestPreflightChecks(unittest.TestCase):
         agent_check = results[1]
         self.assertFalse(agent_check.passed)
         self.assertIn("not supported", agent_check.message)
+
+    # ---- ip_only mode --------------------------------------------------------
+
+    def test_ip_only_passes_with_only_password(self):
+        """ip_only=True: all domain/CF fields can be empty."""
+        config = {
+            "ip_only": True,
+            "use_cloudflare": False,
+            "domain": "",
+            "subdomain": "",
+            "email": "",
+            "cloudflare_api_token": "",
+            "cloudflare_zone_id": "",
+            "coder_admin_password": "securepass1",
+            "enable_agent_copilot": False,
+            "enable_agent_claude": False,
+            "enable_agent_gemini": False,
+            "enable_agent_codex": False,
+            "enable_agent_opencode": False,
+            "openai_api_key": "",
+            "anthropic_api_key": "",
+            "google_api_key": "",
+            "github_token": "",
+            "codex_openai_auth_code": "",
+            "opencode_provider": "",
+        }
+        results = run_preflight_checks(config, provider="aws")
+        required_check = results[0]
+        self.assertTrue(required_check.passed, f"ip_only check failed: {required_check.message}")
+
+    def test_ip_only_missing_password_fails(self):
+        """ip_only=True: coder_admin_password is still required."""
+        config = {
+            "ip_only": True,
+            "use_cloudflare": False,
+            "domain": "",
+            "subdomain": "",
+            "email": "",
+            "cloudflare_api_token": "",
+            "cloudflare_zone_id": "",
+            "coder_admin_password": "",
+            "enable_agent_copilot": False,
+            "enable_agent_claude": False,
+            "enable_agent_gemini": False,
+            "enable_agent_codex": False,
+            "enable_agent_opencode": False,
+            "openai_api_key": "",
+            "anthropic_api_key": "",
+            "google_api_key": "",
+            "github_token": "",
+            "codex_openai_auth_code": "",
+            "opencode_provider": "",
+        }
+        results = run_preflight_checks(config, provider="aws")
+        required_check = results[0]
+        self.assertFalse(required_check.passed)
+        self.assertIn("coder_admin_password", required_check.message)
+
+    # ---- use_cloudflare=False mode -------------------------------------------
+
+    def test_no_cloudflare_passes_without_cf_fields(self):
+        """use_cloudflare=False: CF token/zone not required, but domain/email are."""
+        config = self._full_config(
+            use_cloudflare=False,
+            cloudflare_api_token="",
+            cloudflare_zone_id="",
+        )
+        results = run_preflight_checks(config, provider="aws")
+        required_check = results[0]
+        self.assertTrue(required_check.passed, f"no-CF check failed: {required_check.message}")
+
+    def test_no_cloudflare_missing_domain_fails(self):
+        """use_cloudflare=False: domain is still required."""
+        config = self._full_config(
+            use_cloudflare=False,
+            domain="",
+            cloudflare_api_token="",
+            cloudflare_zone_id="",
+        )
+        results = run_preflight_checks(config, provider="aws")
+        required_check = results[0]
+        self.assertFalse(required_check.passed)
+        self.assertIn("domain", required_check.message)
+
+    def test_no_cloudflare_missing_email_fails(self):
+        """use_cloudflare=False: email is still required (for Let's Encrypt)."""
+        config = self._full_config(
+            use_cloudflare=False,
+            email="",
+            cloudflare_api_token="",
+            cloudflare_zone_id="",
+        )
+        results = run_preflight_checks(config, provider="aws")
+        required_check = results[0]
+        self.assertFalse(required_check.passed)
+        self.assertIn("email", required_check.message)
 
 
 class TestPreflightResult(unittest.TestCase):
