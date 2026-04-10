@@ -39,7 +39,8 @@ log "Writing agent API key file → $AGENT_ENV_FILE …"
   for key in GITHUB_TOKEN OPENAI_API_KEY ANTHROPIC_API_KEY GOOGLE_API_KEY \
              CODEX_OPENAI_AUTH_CODE OPENCODE_PROVIDER \
              ENABLE_AGENT_COPILOT ENABLE_AGENT_CLAUDE ENABLE_AGENT_GEMINI \
-             ENABLE_AGENT_CODEX ENABLE_AGENT_OPENCODE; do
+             ENABLE_AGENT_CODEX ENABLE_AGENT_OPENCODE \
+             STARTER_TEMPLATE; do
     value="$(grep "^${key}=" "$ENV_FILE" | cut -d= -f2- || true)"
     echo "${key}=${value}"
   done

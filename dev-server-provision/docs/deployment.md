@@ -204,6 +204,59 @@ which codex                # if ENABLE_AGENT_CODEX=true
 which opencode             # if ENABLE_AGENT_OPENCODE=true
 ```
 
+## Step 7: (Optional) Starter App Templates
+
+RemoteVibeServer can automatically bootstrap a production-ready starter
+application inside every new Coder workspace.
+
+### Available templates
+
+| Value               | Description                                                |
+|---------------------|------------------------------------------------------------|
+| `none`              | No template — plain workspace (default)                    |
+| `fullstack-baseline`| FastAPI + PostgreSQL + React/Vite + Auth + RBAC (tiangolo) |
+
+### Enabling a template
+
+Set `STARTER_TEMPLATE` in `/etc/dev-server/env` **before** provisioning:
+
+```yaml
+# In RVSconfig.yml / cloud-init.yaml:
+STARTER_TEMPLATE: "fullstack-baseline"
+```
+
+Or via the configurator CLI — a new step `Starter App Template` appears after
+the AI Agents step.
+
+### What fullstack-baseline provides
+
+Based on **[tiangolo/full-stack-fastapi-template](https://github.com/tiangolo/full-stack-fastapi-template)**:
+
+- **FastAPI** backend (Python, SQLModel, Alembic migrations)
+- **PostgreSQL 16** database
+- **React + Vite** frontend (TypeScript, Chakra UI)
+- JWT auth + RBAC (superuser / regular-user roles)
+- Docker Compose stack — starts automatically on workspace launch
+
+**Default ports inside the workspace:**
+
+| Service          | URL                               |
+|------------------|-----------------------------------|
+| Frontend         | http://localhost:5173             |
+| Backend API      | http://localhost:8000             |
+| Interactive docs | http://localhost:8000/docs        |
+
+**Default credentials:** `admin@example.com` / `changeme123` (change on first login)
+
+### Template lifecycle
+
+- The stack is cloned and started on the **first workspace launch** (~2 min)
+- Subsequent starts run `docker compose up -d` (fast — containers already exist)
+- A `.bootstrapped` marker prevents re-cloning; local edits persist across restarts
+- Remove `.bootstrapped` and restart the workspace to reset to a clean clone
+
+For full documentation see [`templates/fullstack-baseline/README.md`](../../templates/fullstack-baseline/README.md).
+
 ## Troubleshooting
 
 ### Provisioning failed

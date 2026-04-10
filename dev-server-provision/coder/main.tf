@@ -19,6 +19,12 @@ variable "docker_socket" {
   type        = string
 }
 
+variable "starter_template" {
+  default     = "none"
+  description = "Starter app template to bootstrap in new workspaces. Options: none, fullstack-baseline"
+  type        = string
+}
+
 provider "docker" {
   host = var.docker_socket != "" ? var.docker_socket : null
 }
@@ -54,6 +60,35 @@ resource "coder_agent" "main" {
       echo "[remotevibe] Agent API keys loaded from $AGENT_ENV"
     else
       echo "[remotevibe] WARNING: $AGENT_ENV not found — AI agents may not be authenticated"
+    fi
+
+    # ── Bootstrap starter app template ──────────────────────────────────────
+    STARTER_TEMPLATE="$${STARTER_TEMPLATE:-none}"
+    if [ "$STARTER_TEMPLATE" = "fullstack-baseline" ]; then
+      TMPL_DIR="/home/coder/fullstack-baseline"
+      if [ ! -f "$TMPL_DIR/.bootstrapped" ]; then
+        echo "[remotevibe] Bootstrapping fullstack-baseline (tiangolo/full-stack-fastapi-template)…"
+        git clone --depth=1 https://github.com/tiangolo/full-stack-fastapi-template "$TMPL_DIR" 2>&1 | sed 's/^/[remotevibe] /'
+        cd "$TMPL_DIR"
+
+        # Generate .env from the example — patch project name and secret key
+        cp .env "$TMPL_DIR/.env.bak" 2>/dev/null || true
+        sed \
+          -e "s|^PROJECT_NAME=.*|PROJECT_NAME=fullstack-baseline|" \
+          -e "s|^SECRET_KEY=.*|SECRET_KEY=$(openssl rand -hex 32)|" \
+          -e "s|^FIRST_SUPERUSER=.*|FIRST_SUPERUSER=admin@example.com|" \
+          -e "s|^FIRST_SUPERUSER_PASSWORD=.*|FIRST_SUPERUSER_PASSWORD=changeme123|" \
+          .env > .env.patched && mv .env.patched .env
+
+        docker compose up -d 2>&1 | sed 's/^/[remotevibe] /'
+        touch "$TMPL_DIR/.bootstrapped"
+        echo "[remotevibe] fullstack-baseline stack started."
+        echo "[remotevibe]   Frontend : http://localhost:5173"
+        echo "[remotevibe]   API docs : http://localhost:8000/docs"
+      else
+        echo "[remotevibe] fullstack-baseline already bootstrapped — ensuring stack is up…"
+        docker compose -f "$TMPL_DIR/docker-compose.yml" up -d 2>&1 | sed 's/^/[remotevibe] /' || true
+      fi
     fi
     # ── Configure Coder CLI for workspace template management ────────────────
     if [ -f /run/secrets/coder-token ]; then
@@ -200,6 +235,7 @@ resource "docker_container" "workspace" {
     "CODER_URL=${data.coder_workspace.me.access_url}",
     "CODER_TEMPLATE_NAME=remotevibe",
     "CODER_TEMPLATE_DIR=/workspace/template",
+    "STARTER_TEMPLATE=${var.starter_template}",
   ]
 
   host {

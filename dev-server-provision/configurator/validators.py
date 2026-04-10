@@ -81,7 +81,7 @@ def validate_coder_password(value: str) -> str | bool:
     return True
 
 
-
+def validate_api_key_optional(value: str) -> str | bool:
     """Accept empty or any non-whitespace string."""
     return True
 
@@ -110,6 +110,24 @@ def validate_callback_url_or_code(value: str) -> str | bool:
     value = value.strip()
     if not value:
         return "Please paste the callback URL or authorization code."
+    return True
+
+
+_VALID_STARTER_TEMPLATES = ("none", "fullstack-baseline")
+
+
+def validate_starter_template(value: str) -> str | bool:
+    """Validate the starter template selection.
+
+    Accepted values: ``"none"`` (no template) or ``"fullstack-baseline"``
+    (tiangolo/full-stack-fastapi-template — FastAPI + PostgreSQL + React).
+    """
+    value = value.strip().lower()
+    if value not in _VALID_STARTER_TEMPLATES:
+        return (
+            f"Unknown starter template '{value}'. "
+            f"Valid options: {', '.join(_VALID_STARTER_TEMPLATES)}."
+        )
     return True
 
 

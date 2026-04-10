@@ -12,6 +12,7 @@ from configurator.validators import (
     validate_domain,
     validate_email,
     validate_oauth_client_id,
+    validate_starter_template,
     validate_subdomain,
 )
 
@@ -155,6 +156,7 @@ class TestPreflightChecks(unittest.TestCase):
             "email": "admin@example.com",
             "cloudflare_api_token": "a" * 40,
             "cloudflare_zone_id": "a" * 32,
+            "coder_admin_password": "TestPass123",
             "enable_agent_copilot": False,
             "enable_agent_claude": False,
             "enable_agent_gemini": False,
@@ -342,6 +344,31 @@ class TestPreflightChecks(unittest.TestCase):
         agent_check = results[1]
         self.assertFalse(agent_check.passed)
         self.assertIn("not supported", agent_check.message)
+
+
+class TestValidateStarterTemplate(unittest.TestCase):
+    def test_none_accepted(self):
+        self.assertTrue(validate_starter_template("none"))
+
+    def test_fullstack_baseline_accepted(self):
+        self.assertTrue(validate_starter_template("fullstack-baseline"))
+
+    def test_case_insensitive(self):
+        self.assertTrue(validate_starter_template("Fullstack-Baseline"))
+        self.assertTrue(validate_starter_template("NONE"))
+
+    def test_unknown_rejected(self):
+        result = validate_starter_template("my-custom-template")
+        self.assertIsInstance(result, str)
+        self.assertIn("my-custom-template", result)
+
+    def test_empty_rejected(self):
+        result = validate_starter_template("")
+        self.assertIsInstance(result, str)
+
+    def test_whitespace_stripped(self):
+        self.assertTrue(validate_starter_template("  none  "))
+        self.assertTrue(validate_starter_template("  fullstack-baseline  "))
 
 
 class TestPreflightResult(unittest.TestCase):

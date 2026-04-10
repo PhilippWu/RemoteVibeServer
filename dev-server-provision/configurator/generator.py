@@ -84,6 +84,12 @@ _CLOUD_INIT_TEMPLATE = textwrap.dedent("""\
           # ── OpenCode Provider Selection ────────────────────────────────────
           OPENCODE_PROVIDER={opencode_provider}
 
+          # ── Starter App Template ───────────────────────────────────────────
+          # none              — no template (plain workspace)
+          # fullstack-baseline — tiangolo/full-stack-fastapi-template
+          #                     (FastAPI + PostgreSQL + React/Vite + Auth + RBAC)
+          STARTER_TEMPLATE={starter_template}
+
       - path: /etc/dev-server/bootstrap.sh
         permissions: "0700"
         owner: root:root
@@ -192,6 +198,7 @@ def default_config() -> dict[str, Any]:
         "github_token": "",
         "codex_openai_auth_code": "",
         "opencode_provider": "",
+        "starter_template": "none",
     }
 
 
@@ -219,6 +226,7 @@ _RVS_KEY_ORDER: list[str] = [
     "github_token",
     "codex_openai_auth_code",
     "opencode_provider",
+    "starter_template",
 ]
 
 
