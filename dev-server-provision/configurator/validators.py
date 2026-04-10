@@ -81,7 +81,7 @@ def validate_coder_password(value: str) -> str | bool:
     return True
 
 
-
+def validate_api_key_optional(value: str) -> str | bool:
     """Accept empty or any non-whitespace string."""
     return True
 

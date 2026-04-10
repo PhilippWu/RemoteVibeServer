@@ -243,6 +243,70 @@ or GitHub token for your chosen provider.
 
 ---
 
+## 6. Codex CLI in headless / SSH environments
+
+When `ENABLE_AGENT_CODEX=true` is set and the server is provisioned via
+`cloud-init` or `install.sh`, there is no interactive terminal available for
+browser-based OAuth flows.  The Codex CLI would hang waiting for user input
+if no credential is pre-configured.
+
+### How authentication is resolved (in order)
+
+| Priority | Credential | How to obtain |
+|----------|------------|---------------|
+| 1 (best) | `CODEX_OPENAI_AUTH_CODE` | Run the configurator before provisioning and complete the OpenAI Device Flow there. The code is embedded in the generated config. |
+| 2 | `OPENAI_API_KEY` | Create a key at <https://platform.openai.com/api-keys> |
+| 3 | `GITHUB_TOKEN` | GitHub OAuth Device Flow (same as Copilot) |
+| — | None set | `agents.sh` prints a warning and skips; workspace startup script prints the Device Flow URL |
+
+### Path 1 — pre-obtain the auth code with the configurator (recommended)
+
+```bash
+# On your local machine, before provisioning:
+python -m configurator
+# → Enable Codex
+# → Choose "Sign in with ChatGPT (Device Flow)"
+# → Complete auth in browser
+# The code is saved as CODEX_OPENAI_AUTH_CODE in cloud-init.yaml / RVSconfig.yml
+```
+
+At workspace start, the startup script runs:
+```bash
+codex login --auth-code "$CODEX_OPENAI_AUTH_CODE"
+```
+This completes the PKCE exchange non-interactively — no browser needed on the
+server side.
+
+### Path 2 — API key
+
+Add to `/etc/dev-server/env`:
+```
+OPENAI_API_KEY=sk-...
+```
+
+### Path 3 — post-provisioning manual auth
+
+If the workspace is already running, open a terminal inside it and run:
+```bash
+codex login --device-auth
+# Follow the URL that is printed:
+# https://auth.openai.com/codex/device
+```
+
+### Reading the Device Flow URL from the log
+
+When no credential is set at provisioning time, `agents.sh` logs the following
+(visible in `/var/log/dev-server-provision.log`):
+
+```
+[agents] WARN: Device Flow URL (for manual auth):  https://auth.openai.com/codex/device
+```
+
+The workspace startup script also echoes the URL on first start so it appears
+in the Coder workspace log panel.
+
+---
+
 ## Adding a new provider
 
 To add OAuth for a new AI agent:

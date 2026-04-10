@@ -55,6 +55,33 @@ resource "coder_agent" "main" {
     else
       echo "[remotevibe] WARNING: $AGENT_ENV not found — AI agents may not be authenticated"
     fi
+
+    # ── Codex CLI — non-interactive authentication ───────────────────────────
+    # If CODEX_OPENAI_AUTH_CODE is set, exchange it for an access token
+    # non-interactively so Codex does not hang waiting for browser input.
+    # This is equivalent to running `codex login --device-auth` in a browser.
+    if [ "$${ENABLE_AGENT_CODEX:-false}" = "true" ]; then
+      if [ -n "$${CODEX_OPENAI_AUTH_CODE:-}" ]; then
+        echo "[remotevibe] Codex: completing non-interactive login with CODEX_OPENAI_AUTH_CODE …"
+        if command -v codex >/dev/null 2>&1; then
+          codex login --auth-code "$CODEX_OPENAI_AUTH_CODE" 2>&1 \
+            && echo "[remotevibe] Codex: login successful." \
+            || echo "[remotevibe] WARNING: Codex login with auth code failed — you may need to run 'codex login' manually."
+        else
+          echo "[remotevibe] WARNING: codex CLI not found in PATH — skipping auth."
+        fi
+      elif [ -n "$${OPENAI_API_KEY:-}" ]; then
+        echo "[remotevibe] Codex: using OPENAI_API_KEY (API key mode)."
+      elif [ -n "$${GITHUB_TOKEN:-}" ]; then
+        echo "[remotevibe] Codex: using GITHUB_TOKEN (GitHub OAuth mode)."
+      else
+        echo "[remotevibe] WARNING: Codex is enabled but no auth credential is set."
+        echo "[remotevibe]   To authenticate, run one of:"
+        echo "[remotevibe]     codex login --device-auth   (ChatGPT Plus/Pro — needs browser)"
+        echo "[remotevibe]     export OPENAI_API_KEY=sk-..."
+        echo "[remotevibe]   Device Flow URL: https://auth.openai.com/codex/device"
+      fi
+    fi
     # ── Configure Coder CLI for workspace template management ────────────────
     if [ -f /run/secrets/coder-token ]; then
       _tok=$(cat /run/secrets/coder-token | tr -d '[:space:]')

@@ -473,6 +473,16 @@ def _ask_agents(config: dict[str, Any]) -> None:
             ).execute().strip()
 
     if config["enable_agent_codex"]:
+        print(
+            f"\n  {_BOLD}Codex CLI authentication{_RESET}\n"
+            f"  Codex requires authentication before it can run.\n"
+            f"  In a headless server environment the Device Flow URL is printed\n"
+            f"  to the provisioning log — open it in your browser to complete auth.\n"
+            f"  Alternatively, authenticate here and the auth code is embedded in\n"
+            f"  the generated config so the workspace authenticates automatically.\n"
+            f"  Device Flow URL (for reference): "
+            f"{_CYAN}https://auth.openai.com/codex/device{_RESET}\n"
+        )
         codex_auth = inquirer.select(
             message="How would you like to authenticate Codex CLI?",
             choices=[
