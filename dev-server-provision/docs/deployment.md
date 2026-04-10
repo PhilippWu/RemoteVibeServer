@@ -86,15 +86,66 @@ hcloud server create \
 If your server does **not** support cloud-init (e.g. a dedicated/bare-metal
 machine), use the one-liner installer instead:
 
-1. Run the configurator and let it generate `RVSconfig.yml` (offered after
-   `cloud-init.yaml`).
-2. SSH into the server and run:
+```bash
+curl -fsSL https://raw.githubusercontent.com/PhilippWu/RemoteVibeServer/main/install.sh | sudo bash
+```
 
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/PhilippWu/RemoteVibeServer/main/install.sh | sudo bash
-   ```
+The installer detects your config automatically through a smart priority chain —
+no flags or arguments required:
 
-3. Paste the contents of `RVSconfig.yml` when prompted, then press **Ctrl-D**.
+#### Path 1 — Config already on disk *(zero prompts)*
+
+If `/etc/dev-server/RVSconfig.yml` or `./RVSconfig.yml` already exists
+(e.g. copied via SCP, or from a previous run), it is used directly.
+
+```bash
+scp RVSconfig.yml root@<SERVER_IP>:/etc/dev-server/
+curl -fsSL .../install.sh | sudo bash   # no prompts
+```
+
+Covers: re-runs, partial installs, pre-baked images.
+
+#### Path 2 — Download from a URL
+
+At the prompt, enter an `https://` URL pointing to your config (private Gist,
+object-storage bucket, internal file server):
+
+```
+> https://gist.githubusercontent.com/you/abc.../raw/RVSconfig.yml
+```
+
+#### Path 3 — Paste YAML content *(previous default behavior)*
+
+At the prompt, paste the full contents of your `RVSconfig.yml`, then press
+**Ctrl-D** on an empty line.
+
+```
+> [paste YAML here, then Ctrl-D]
+```
+
+Generate the file locally first:
+
+```bash
+cd dev-server-provision && python -m configurator
+```
+
+#### Path 4 — Interactive wizard *(no prior config needed)*
+
+Press **Enter** (empty line) at the prompt to launch the embedded setup wizard
+— no local Python or configurator needed:
+
+```
+> [Enter]
+
+  RVS Setup Wizard
+  ─────────────────
+  Step 1/4 — Network
+  Do you have a domain name? [y/N]: …
+```
+
+The wizard covers: domain/IP-only mode, Cloudflare DNS, admin password, and AI
+agent selection. It writes `RVSconfig.yml` to disk before proceeding, so future
+re-runs use **Path 1** automatically.
 
 The script parses the YAML into `/etc/dev-server/env`, installs Docker, UFW,
 fail2ban, and downloads the provisioning scripts — then runs `setup.sh`

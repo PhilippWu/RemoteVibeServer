@@ -155,6 +155,7 @@ class TestPreflightChecks(unittest.TestCase):
             "email": "admin@example.com",
             "cloudflare_api_token": "a" * 40,
             "cloudflare_zone_id": "a" * 32,
+            "coder_admin_password": "TestPass123",
             "enable_agent_copilot": False,
             "enable_agent_claude": False,
             "enable_agent_gemini": False,
