@@ -19,7 +19,25 @@ log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [dns] $*" | tee -a "$LOG_FILE";
 die() { log "ERROR: $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Validate inputs
+# IP-only / no-Cloudflare mode — skip DNS automation
+# ---------------------------------------------------------------------------
+if [[ "${IP_ONLY:-false}" == "true" || -z "${DOMAIN:-}" ]]; then
+  log "IP-only mode — no DNS record needed.  Skipping DNS step."
+  exit 0
+fi
+
+if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
+  log "Cloudflare credentials not configured — skipping automated DNS."
+  log "Please create the following DNS record manually at your DNS provider:"
+  log "  Type : A"
+  log "  Name : ${SUBDOMAIN:-<subdomain>}.${DOMAIN:-<domain>}"
+  log "  Value: ${PUBLIC_IP:-<server-public-ip>}"
+  log "  TTL  : 3600"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Validate remaining inputs
 # ---------------------------------------------------------------------------
 : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required}"
 : "${CLOUDFLARE_ZONE_ID:?CLOUDFLARE_ZONE_ID is required}"

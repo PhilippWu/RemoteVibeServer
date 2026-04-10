@@ -111,6 +111,7 @@ done <<< "$RVS_CONTENT"
 # Add derived CODER variables
 DOMAIN="$(grep '^DOMAIN=' "$ENV_FILE" | cut -d= -f2-)"
 SUBDOMAIN="$(grep '^SUBDOMAIN=' "$ENV_FILE" | cut -d= -f2-)"
+IP_ONLY_VAL="$(grep '^IP_ONLY=' "$ENV_FILE" | cut -d= -f2- || true)"
 if [[ -n "$DOMAIN" && -n "$SUBDOMAIN" ]]; then
   CODER_FQDN="https://${SUBDOMAIN}.${DOMAIN}"
   grep -q '^CODER_URL=' "$ENV_FILE" || echo "CODER_URL=${CODER_FQDN}" >> "$ENV_FILE"
@@ -119,8 +120,13 @@ fi
 
 log "Environment file written to $ENV_FILE"
 
-# Quick validation
-REQUIRED_KEYS=(DOMAIN SUBDOMAIN EMAIL CLOUDFLARE_API_TOKEN CLOUDFLARE_ZONE_ID)
+# Quick validation — CF keys only required when a domain is configured
+# and ip_only mode is not active.
+if [[ "$IP_ONLY_VAL" != "true" && -n "$DOMAIN" ]]; then
+  REQUIRED_KEYS=(DOMAIN SUBDOMAIN EMAIL CLOUDFLARE_API_TOKEN CLOUDFLARE_ZONE_ID)
+else
+  REQUIRED_KEYS=(CODER_ADMIN_PASSWORD)
+fi
 missing=()
 for key in "${REQUIRED_KEYS[@]}"; do
   val="$(grep "^${key}=" "$ENV_FILE" | cut -d= -f2- || true)"

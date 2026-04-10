@@ -81,7 +81,7 @@ def validate_coder_password(value: str) -> str | bool:
     return True
 
 
-
+def validate_api_key_optional(value: str) -> str | bool:
     """Accept empty or any non-whitespace string."""
     return True
 
@@ -131,8 +131,29 @@ class PreflightResult:
 
 
 def _check_required_fields(config: dict[str, Any]) -> PreflightResult:
-    """All required fields must be non-empty."""
-    required = ["domain", "subdomain", "email", "cloudflare_api_token", "cloudflare_zone_id", "coder_admin_password"]
+    """All required fields must be non-empty.
+
+    Which fields are required depends on the deployment mode:
+    - ``ip_only=True``: only ``coder_admin_password`` is required — no domain,
+      no Cloudflare credentials needed.
+    - ``use_cloudflare=False`` (domain mode, manual DNS): domain / subdomain /
+      email are required but Cloudflare credentials are not.
+    - default (Cloudflare-managed DNS): all domain + CF fields are required.
+    """
+    ip_only = config.get("ip_only", False)
+    use_cloudflare = config.get("use_cloudflare", True)
+
+    if ip_only:
+        required: list[str] = ["coder_admin_password"]
+    elif not use_cloudflare:
+        required = ["domain", "subdomain", "email", "coder_admin_password"]
+    else:
+        required = [
+            "domain", "subdomain", "email",
+            "cloudflare_api_token", "cloudflare_zone_id",
+            "coder_admin_password",
+        ]
+
     missing = [f for f in required if not config.get(f)]
     if missing:
         return PreflightResult("Required fields", False, f"Missing: {', '.join(missing)}")

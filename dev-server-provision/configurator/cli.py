@@ -159,6 +159,23 @@ def _ask_import(config: dict[str, Any]) -> None:
 def _ask_domain_config(config: dict[str, Any]) -> None:
     _heading("Domain & DNS")
 
+    has_domain = inquirer.confirm(
+        message="Do you have a domain name for this server?",
+        default=True,
+    ).execute()
+
+    if not has_domain:
+        config["ip_only"] = True
+        config["use_cloudflare"] = False
+        print(
+            f"\n  {_YELLOW}IP-only mode selected.{_RESET}\n"
+            f"  Coder will be accessible via plain HTTP on your server's public IP\n"
+            f"  (e.g. http://<server-ip>).  No TLS certificate will be provisioned.\n"
+        )
+        return
+
+    config["ip_only"] = False
+
     config["domain"] = inquirer.text(
         message="Root domain (e.g. example.com):",
         default=config.get("domain") or "",
@@ -187,6 +204,26 @@ def _ask_domain_config(config: dict[str, Any]) -> None:
 
 def _ask_cloudflare_config(config: dict[str, Any]) -> None:
     _heading("Cloudflare DNS")
+
+    use_cf = inquirer.confirm(
+        message="Use Cloudflare to manage DNS automatically?",
+        default=config.get("use_cloudflare", True),
+    ).execute()
+
+    config["use_cloudflare"] = use_cf
+
+    if not use_cf:
+        subdomain = config.get("subdomain", "<subdomain>")
+        domain = config.get("domain", "<domain>")
+        fqdn = f"{subdomain}.{domain}"
+        print(
+            f"\n  {_YELLOW}Manual DNS mode.{_RESET}  Please create the following DNS record\n"
+            f"  at your DNS provider before or shortly after provisioning:\n\n"
+            f"  {'Type':<8} {'Name':<30} {'Value':<20} {'TTL'}\n"
+            f"  {'-'*8} {'-'*30} {'-'*20} {'-'*5}\n"
+            f"  {'A':<8} {fqdn:<30} {'<server-public-ip>':<20} 3600\n"
+        )
+        return
 
     config["cloudflare_api_token"] = inquirer.secret(
         message="Cloudflare API Token (Zone:DNS:Edit):",
@@ -773,8 +810,9 @@ def run() -> None:
         # 2. Domain & DNS
         _ask_domain_config(config)
 
-        # 3. Cloudflare
-        _ask_cloudflare_config(config)
+        # 3. Cloudflare (skip entirely in ip_only mode)
+        if not config.get("ip_only"):
+            _ask_cloudflare_config(config)
 
         # 4. Coder admin password
         _ask_coder_admin_password(config)
@@ -803,8 +841,12 @@ def run() -> None:
         _offer_deploy(provider, deploy_config, output_file)
 
         _heading("Done")
-        fqdn = f"{config['subdomain']}.{config['domain']}"
-        print(f"  After provisioning (~5 min), access Coder at: {_CYAN}https://{fqdn}{_RESET}")
+        if config.get("ip_only"):
+            print(f"  After provisioning (~5 min), access Coder at: {_CYAN}http://<server-ip>{_RESET}")
+            print(f"  {_YELLOW}(Replace <server-ip> with the actual public IP of your server){_RESET}")
+        else:
+            fqdn = f"{config['subdomain']}.{config['domain']}"
+            print(f"  After provisioning (~5 min), access Coder at: {_CYAN}https://{fqdn}{_RESET}")
         print()
         print(f"  {_BOLD}Bare-server install:{_RESET}")
         print(f"  Copy {_CYAN}RVSconfig.yml{_RESET} to your server, then run:")
