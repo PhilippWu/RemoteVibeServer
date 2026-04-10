@@ -17,6 +17,7 @@ set -euo pipefail
 
 LOG_FILE="${LOG_FILE:-/var/log/dev-server-provision.log}"
 log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [agents] $*" | tee -a "$LOG_FILE"; }
+warn() { log "WARN: $*"; }
 
 ENV_FILE="${ENV_FILE:-/etc/dev-server/env}"
 AGENT_ENV_FILE="/etc/dev-server/agent-env"
@@ -25,6 +26,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
   log "WARN: $ENV_FILE not found — skipping agent-env creation."
   exit 0
 fi
+
+# Source the env file so we can inspect individual variable values below.
+set -a
+# shellcheck source=/dev/null
+source "$ENV_FILE"
+set +a
 
 # ---------------------------------------------------------------------------
 # Extract agent-relevant keys only
@@ -48,4 +55,58 @@ log "Writing agent API key file → $AGENT_ENV_FILE …"
 chmod 0644 "$AGENT_ENV_FILE"
 log "Agent key file written ($(wc -l < "$AGENT_ENV_FILE") lines)."
 log "Note: AI agent CLIs are installed inside the workspace Docker image."
+
+# ---------------------------------------------------------------------------
+# Codex CLI — credential validation
+# ---------------------------------------------------------------------------
+# Codex CLI authenticates via one of three methods (checked in order):
+#   1. CODEX_OPENAI_AUTH_CODE — pre-obtained OpenAI Device Flow auth code
+#      (obtained via the configurator or `codex login --device-auth`).
+#      The workspace startup script will exchange it non-interactively.
+#   2. OPENAI_API_KEY — direct API key (billing required).
+#   3. GITHUB_TOKEN  — Codex can authenticate via GitHub OAuth.
+#
+# If none of the above are set, Codex would try to launch an interactive
+# Device Flow in the terminal — which hangs silently in headless/SSH
+# environments.  We warn early and skip instead of letting it hang.
+# ---------------------------------------------------------------------------
+if [[ "${ENABLE_AGENT_CODEX:-false}" == "true" ]]; then
+  if [[ -n "${CODEX_OPENAI_AUTH_CODE:-}" ]]; then
+    log "Codex: CODEX_OPENAI_AUTH_CODE is set — workspace startup will complete"
+    log "       non-interactive authentication via 'codex login --auth-code'."
+  elif [[ -n "${OPENAI_API_KEY:-}" ]]; then
+    log "Codex: OPENAI_API_KEY is set — Codex CLI will use API key mode."
+  elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    log "Codex: GITHUB_TOKEN is set — Codex CLI will use GitHub OAuth mode."
+  else
+    warn "Codex is enabled but no authentication credential is configured."
+    warn "Codex CLI would hang waiting for interactive input in a headless environment."
+    warn ""
+    warn "To fix this, obtain an auth code BEFORE provisioning:"
+    warn "  1. Run the configurator:  python -m configurator"
+    warn "  2. Select 'OpenAI Codex CLI' → 'Sign in with ChatGPT (Device Flow)'"
+    warn "  3. Authenticate in your browser — the configurator saves the code"
+    warn "     as CODEX_OPENAI_AUTH_CODE in your cloud-init.yaml / RVSconfig.yml"
+    warn ""
+    warn "Alternatively, set one of these in /etc/dev-server/env and re-run:"
+    warn "  CODEX_OPENAI_AUTH_CODE=<auth_code>   (ChatGPT Plus/Pro plan)"
+    warn "  OPENAI_API_KEY=sk-...                (API billing plan)"
+    warn "  GITHUB_TOKEN=ghp_...                 (GitHub OAuth)"
+    warn ""
+    warn "Device Flow URL (for manual auth):  https://auth.openai.com/codex/device"
+    warn "Skipping Codex credential setup — Codex may prompt for login in the workspace."
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# OpenCode — log provider info
+# ---------------------------------------------------------------------------
+if [[ "${ENABLE_AGENT_OPENCODE:-false}" == "true" ]]; then
+  if [[ -n "${OPENCODE_PROVIDER:-}" ]]; then
+    log "OpenCode: provider(s) configured: ${OPENCODE_PROVIDER}"
+  else
+    warn "OpenCode is enabled but OPENCODE_PROVIDER is not set."
+    warn "OpenCode may prompt for a provider selection in the workspace."
+  fi
+fi
 
