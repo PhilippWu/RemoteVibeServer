@@ -579,6 +579,52 @@ def _ask_agents(config: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 4b — Starter app template
+# ---------------------------------------------------------------------------
+
+_STARTER_TEMPLATE_CHOICES = [
+    {
+        "name": "none — plain workspace (no pre-installed app)",
+        "value": "none",
+    },
+    {
+        "name": "fullstack-baseline — FastAPI + PostgreSQL + React/Vite (tiangolo/full-stack-fastapi-template)",
+        "value": "fullstack-baseline",
+    },
+]
+
+
+def _ask_starter_template(config: dict[str, Any]) -> None:
+    _heading("Starter App Template (optional)")
+    print(
+        "  Optionally pre-install a starter application into every new workspace.\n"
+        f"\n"
+        f"  {_BOLD}fullstack-baseline{_RESET} bootstraps "
+        f"{_CYAN}tiangolo/full-stack-fastapi-template{_RESET}:\n"
+        f"    • FastAPI backend  (Python, SQLModel, Alembic migrations)\n"
+        f"    • PostgreSQL database\n"
+        f"    • React + Vite frontend\n"
+        f"    • JWT auth + RBAC + CRUD scaffolding\n"
+        f"    • Docker Compose stack (ready in ~2 min)\n"
+        f"\n"
+        f"  The stack starts automatically on first workspace launch and is\n"
+        f"  available at http://localhost:5173 (frontend) and :8000 (API).\n"
+    )
+
+    current = config.get("starter_template") or "none"
+    config["starter_template"] = inquirer.select(
+        message="Starter template:",
+        choices=_STARTER_TEMPLATE_CHOICES,
+        default=current,
+    ).execute()
+
+    if config["starter_template"] == "fullstack-baseline":
+        _success("fullstack-baseline selected — stack will auto-start on first workspace launch.")
+    else:
+        _success("No starter template — plain workspace.")
+
+
+# ---------------------------------------------------------------------------
 # Step 4 — Coder admin password
 # ---------------------------------------------------------------------------
 
@@ -781,6 +827,9 @@ def run() -> None:
 
         # 5. AI agents
         _ask_agents(config)
+
+        # 5b. Starter app template
+        _ask_starter_template(config)
 
         # 6. Provider options
         _ask_provider_options(provider, deploy_config)
