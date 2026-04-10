@@ -8,6 +8,12 @@ No local IDE. No complex setup. Just paste the config, boot the server, and star
 
 ## Screenshots
 
+**Step 1 — Run the interactive configurator** (takes ~2 minutes, generates your `cloud-init.yaml`):
+
+![RemoteVibeServer Init-Script Configurator — interactive CLI wizard for cloud provider, domain, Cloudflare DNS, Coder password and AI agent selection](img/screenshots/00-configurator-cli.png)
+
+**Step 2 — Paste the config into your VPS and get a full remote dev environment:**
+
 | Coder Workspace Dashboard | VS Code for the Web |
 |---|---|
 | ![Coder dashboard showing a running workspace with VS Code, Terminal and resource metrics](img/screenshots/01-coder-dashboard.png) | ![VS Code Web (code-server) running in the browser](img/screenshots/02-vscode-web.png) |
