@@ -131,6 +131,7 @@ User=coder
 Group=coder
 EnvironmentFile=$ENV_FILE
 Environment=CODER_ACCESS_URL=https://${FQDN}
+Environment=CODER_WILDCARD_ACCESS_URL=*.${FQDN}
 Environment=CODER_HTTP_ADDRESS=127.0.0.1:3000
 Environment=CODER_TLS_ENABLE=false
 ExecStart=/usr/local/bin/coder server
@@ -160,6 +161,22 @@ bash "$INFRA_DIR/proxy.sh"
 # ---------------------------------------------------------------------------
 log "Checking AI agent flags …"
 bash "$INFRA_DIR/agents.sh"
+
+# ---------------------------------------------------------------------------
+# 6b. Open development port range in UFW
+# ---------------------------------------------------------------------------
+# Workspace containers and Docker Compose services may expose TCP ports
+# (databases, backend APIs, etc.) that need to be reachable from the
+# developer's machine.  We allow a generous range so tools like MongoDB
+# Compass, database GUIs, or direct API testing work without extra config.
+# ---------------------------------------------------------------------------
+log "Opening development port range 3000–9999 in UFW …"
+if ufw status | grep -q "3000:9999/tcp"; then
+  log "Port range 3000–9999/tcp already allowed in UFW."
+else
+  ufw allow 3000:9999/tcp
+  log "UFW: allowed 3000–9999/tcp for development services."
+fi
 
 # ---------------------------------------------------------------------------
 # 7. Build default Coder template image (optional, non-blocking)
@@ -296,7 +313,13 @@ enable_coder_proxy() {
     email $EMAIL
 }
 
-$FQDN {
+# Main Coder access + wildcard subdomains for port forwarding / app routing.
+# Wildcard TLS via DNS-01 challenge (Cloudflare).
+$FQDN, *.$FQDN {
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+
     reverse_proxy 127.0.0.1:3000
 
     # WebSocket support (required for Coder terminal & IDE sessions)

@@ -53,6 +53,10 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
+# Grant the coder user access to the Docker socket (bind-mounted from host).
+# The base image already adds coder to the 'docker' group, but the host's
+# docker GID may differ.  The startup script handles this at runtime.
+
 # ---------------------------------------------------------------------------
 # Node.js 20 LTS
 # ---------------------------------------------------------------------------
@@ -153,6 +157,77 @@ $CODER_URL/@<owner>/<workspace>/apps/code-server/
 
 code-server runs on port 13337 inside the container (no auth — Coder handles that).
 
+## Docker & Docker Compose
+
+The host Docker socket is bind-mounted into the workspace (`/var/run/docker.sock`),
+enabling **Docker-outside-Docker (DooD)** workflows.  You can run `docker` and
+`docker compose` commands directly:
+
+```bash
+docker compose up -d          # start services defined in docker-compose.yml
+docker compose logs -f        # follow logs
+docker ps                     # list running containers
+```
+
+Services started via Docker Compose run as **sibling containers on the host**.
+Their published ports are accessible from outside the server.
+
+## Accessing Services / Ports
+
+There are two ways to reach services running in or alongside the workspace:
+
+### 1. Browser (HTTP/HTTPS) — Wildcard Subdomains
+
+Any TCP port your workspace listens on is automatically accessible via Coder's
+wildcard subdomain routing:
+
+```
+https://<port>--<workspace>--<owner>.<FQDN>
+```
+
+**Examples** (assuming workspace `myapp`, owner `admin`, FQDN `dev.example.com`):
+
+| Service         | Port | URL                                              |
+|-----------------|------|--------------------------------------------------|
+| React frontend  | 5173 | `https://5173--myapp--admin.dev.example.com`     |
+| Express API     | 3001 | `https://3001--myapp--admin.dev.example.com`     |
+| Storybook       | 6006 | `https://6006--myapp--admin.dev.example.com`     |
+
+Ports opened **inside the workspace container** are auto-detected by the Coder
+agent.  Ports from Docker Compose sibling containers are on the host directly.
+
+### 2. Direct TCP — IP:Port
+
+For non-HTTP tools (MongoDB Compass, database GUIs, Redis CLI, etc.) connect to
+the server's public IP or FQDN on the published port:
+
+```
+dev.example.com:27017    # MongoDB
+dev.example.com:5432     # PostgreSQL
+dev.example.com:6379     # Redis
+```
+
+The firewall allows ports **3000–9999** for development services.  Docker Compose
+services that publish ports in this range are immediately reachable.
+
+**Example `docker-compose.yml`:**
+
+```yaml
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"     # reachable at dev.example.com:27017
+  api:
+    build: ./backend
+    ports:
+      - "3001:3001"       # browser: https://3001--ws--admin.dev.example.com
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"       # browser: https://5173--ws--admin.dev.example.com
+```
+
 ## What is Coder?
 
 Coder is a remote development platform. This workspace is a Docker container
@@ -201,6 +276,8 @@ coder workspaces list                                            # list workspac
 - Template changes take effect for **new** workspaces or after a workspace restart
 - Changing the Dockerfile triggers an image rebuild on the next template push
 - The startup script runs on every workspace start
+- Docker Compose services are sibling containers — they share the host network
+  stack, not the workspace container's network
 MDEOF
 
 cat > /etc/skel/push-template.sh << 'SHEOF'

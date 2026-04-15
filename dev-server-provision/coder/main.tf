@@ -31,6 +31,13 @@ resource "coder_agent" "main" {
   arch = data.coder_provisioner.me.arch
   os   = "linux"
 
+  # ── Port sharing: allow all ports to be accessible via wildcard subdomains ──
+  # This enables developers to expose any service (frontend, backend, DB) from
+  # their workspace without pre-declaring each port in the template.
+  display_apps {
+    port_forwarding_helper = true
+  }
+
   # Source agent API keys and persist them to the shell profile.
   # Keys come from /run/secrets/agent-env (bind-mounted read-only from host).
   startup_script = <<-EOT
@@ -40,6 +47,22 @@ resource "coder_agent" "main" {
     if [ ! -f ~/.init_done ]; then
       cp -rT /etc/skel ~ 2>/dev/null || true
       touch ~/.init_done
+    fi
+
+    # ── Fix Docker socket permissions for DooD ────────────────────────────
+    # The bind-mounted /var/run/docker.sock may be owned by a GID that the
+    # coder user is not a member of.  Detect and adjust at startup.
+    if [ -S /var/run/docker.sock ]; then
+      DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+      if ! id -G | tr ' ' '\n' | grep -qx "$DOCKER_GID"; then
+        sudo groupmod -g "$DOCKER_GID" docker-host 2>/dev/null \
+          || sudo groupadd -g "$DOCKER_GID" docker-host 2>/dev/null || true
+        sudo usermod -aG docker-host "$(whoami)" 2>/dev/null || true
+        # newgrp would drop the shell; instead just make the socket world-writable
+        # as a fallback — acceptable in a single-tenant dev environment.
+        sudo chmod 0666 /var/run/docker.sock 2>/dev/null || true
+      fi
+      echo "[remotevibe] Docker socket available — docker compose ready"
     fi
 
     # Load AI agent API keys from bind-mounted secret file.
@@ -241,6 +264,15 @@ resource "docker_container" "workspace" {
     container_path = "/run/secrets/coder-token"
     host_path      = "/etc/dev-server/coder-admin-token"
     read_only      = true
+  }
+
+  # Docker socket — enables Docker-outside-Docker (DooD) workflows.
+  # Services started via `docker compose` run as sibling containers on the
+  # host, so their published ports are directly reachable on the server IP.
+  volumes {
+    container_path = "/var/run/docker.sock"
+    host_path      = "/var/run/docker.sock"
+    read_only      = false
   }
 
   labels {

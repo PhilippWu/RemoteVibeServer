@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-# infra/proxy.sh — Caddy Reverse Proxy + Automatic HTTPS
+# infra/proxy.sh — Caddy Reverse Proxy + Automatic HTTPS (incl. Wildcard)
 # =============================================================================
-# Installs Caddy and configures it as a reverse proxy in front of Coder.
-# Caddy handles automatic TLS certificate provisioning via Let's Encrypt
-# (ACME HTTP-01), so no manual certbot step is needed.
+# Builds a custom Caddy binary with the Cloudflare DNS module and configures
+# it as a reverse proxy in front of Coder.  Caddy handles automatic TLS
+# certificate provisioning via Let's Encrypt:
+#   • HTTP-01 challenge for the main domain ($FQDN)
+#   • DNS-01 challenge via Cloudflare for the wildcard (*.$FQDN)
+#
+# The wildcard certificate enables Coder's subdomain-based port forwarding
+# so workspace services are accessible at https://<port>--<ws>--<owner>.$FQDN.
 #
 # Why Caddy?
 #   • Zero-config HTTPS with automatic certificate renewal
@@ -13,8 +18,9 @@
 #   • Production-proven and actively maintained
 #
 # Required environment variables:
-#   FQDN   — fully qualified domain name (e.g. dev.example.com)
-#   EMAIL  — used for ACME account registration
+#   FQDN                  — fully qualified domain name (e.g. dev.example.com)
+#   EMAIL                 — used for ACME account registration
+#   CLOUDFLARE_API_TOKEN  — for DNS-01 wildcard TLS challenge
 # =============================================================================
 set -euo pipefail
 
@@ -34,22 +40,44 @@ die() { log "ERROR: $*" >&2; exit 1; }
 # ---------------------------------------------------------------------------
 : "${FQDN:?FQDN is required}"
 : "${EMAIL:?EMAIL is required}"
+: "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required (for DNS-01 wildcard TLS)}"
 
 # ---------------------------------------------------------------------------
-# Install Caddy (idempotent)
+# Install Caddy with Cloudflare DNS module (for wildcard TLS via DNS-01)
 # ---------------------------------------------------------------------------
-if command -v caddy &>/dev/null; then
-  log "Caddy is already installed — $(caddy version)"
+# Standard Caddy cannot obtain wildcard certificates because Let's Encrypt
+# requires the DNS-01 ACME challenge for those.  We use xcaddy to build a
+# custom Caddy binary that includes the Cloudflare DNS provider plugin.
+# ---------------------------------------------------------------------------
+if command -v caddy &>/dev/null && caddy list-modules 2>/dev/null | grep -q dns.providers.cloudflare; then
+  log "Caddy with Cloudflare DNS module is already installed — $(caddy version)"
 else
-  log "Installing Caddy …"
-  apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-    | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-    > /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update -y
-  apt-get install -y caddy
-  log "Caddy installed — $(caddy version)"
+  log "Building custom Caddy with Cloudflare DNS module …"
+
+  # Install Go (required by xcaddy) if not already present
+  if ! command -v go &>/dev/null; then
+    log "Installing Go (required by xcaddy) …"
+    GO_VERSION="1.22.2"
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+      | tar -C /usr/local -xz
+    export PATH="/usr/local/go/bin:$PATH"
+  fi
+
+  # Install xcaddy
+  if ! command -v xcaddy &>/dev/null; then
+    log "Installing xcaddy …"
+    go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+    export PATH="$HOME/go/bin:$PATH"
+  fi
+
+  # Build Caddy with Cloudflare DNS plugin
+  log "Building Caddy binary (this may take a minute) …"
+  xcaddy build --with github.com/caddy-dns/cloudflare --output /usr/bin/caddy
+
+  # If Caddy was previously installed via apt, stop the service first
+  systemctl stop caddy 2>/dev/null || true
+
+  log "Custom Caddy installed — $(caddy version)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -155,7 +183,11 @@ cat > "$CADDYFILE" <<EOF
     email $EMAIL
 }
 
-$FQDN {
+$FQDN, *.$FQDN {
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+
     root * $MAINTENANCE_DIR
     file_server
 
@@ -176,6 +208,16 @@ EOF
 # Ensure log directory exists with correct ownership for caddy user
 mkdir -p /var/log/caddy
 chown -R caddy:caddy /var/log/caddy
+
+# ---------------------------------------------------------------------------
+# Expose CLOUDFLARE_API_TOKEN to Caddy (needed for DNS-01 TLS challenge)
+# ---------------------------------------------------------------------------
+mkdir -p /etc/systemd/system/caddy.service.d
+cat > /etc/systemd/system/caddy.service.d/cloudflare.conf <<EOF
+[Service]
+Environment=CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN
+EOF
+systemctl daemon-reload
 
 # ---------------------------------------------------------------------------
 # Validate & start

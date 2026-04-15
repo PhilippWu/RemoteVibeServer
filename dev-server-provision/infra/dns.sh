@@ -2,8 +2,13 @@
 # =============================================================================
 # infra/dns.sh — Cloudflare DNS Automation
 # =============================================================================
-# Creates or updates an A record pointing $FQDN → $PUBLIC_IP via the
-# Cloudflare API v4.
+# Creates or updates DNS records via the Cloudflare API v4:
+#   1. A record:  $FQDN        → $PUBLIC_IP  (main Coder access)
+#   2. A record:  *.$FQDN      → $PUBLIC_IP  (wildcard for Coder port forwarding)
+#
+# The wildcard record enables Coder's subdomain-based app/port routing so that
+# any port opened inside a workspace is automatically reachable via
+#   https://<port>--<workspace>--<owner>.$FQDN
 #
 # Required environment variables (set via /etc/dev-server/env):
 #   CLOUDFLARE_API_TOKEN  — scoped API token with Zone:DNS:Edit
@@ -44,49 +49,68 @@ cf_api() {
 }
 
 # ---------------------------------------------------------------------------
-# Check for existing record
+# Helper — Ensure an A record exists and points to $PUBLIC_IP
+# Usage: ensure_a_record <record_name>
 # ---------------------------------------------------------------------------
-log "Looking up existing A record for $FQDN …"
-EXISTING=$(cf_api GET "/zones/$CLOUDFLARE_ZONE_ID/dns_records?type=A&name=$FQDN")
+ensure_a_record() {
+  local record_name="$1"
 
-RECORD_COUNT=$(echo "$EXISTING" | jq '.result | length')
-log "Found $RECORD_COUNT existing A record(s)."
+  log "Looking up existing A record for $record_name …"
+  local existing
+  existing=$(cf_api GET "/zones/$CLOUDFLARE_ZONE_ID/dns_records?type=A&name=$record_name")
 
-# ---------------------------------------------------------------------------
-# Create or update
-# ---------------------------------------------------------------------------
-PAYLOAD=$(jq -n \
-  --arg name "$FQDN" \
-  --arg ip   "$PUBLIC_IP" \
-  '{type:"A", name:$name, content:$ip, ttl:120, proxied:false}')
+  local record_count
+  record_count=$(echo "$existing" | jq '.result | length')
+  log "Found $record_count existing A record(s) for $record_name."
 
-if [[ "$RECORD_COUNT" -gt 0 ]]; then
-  RECORD_ID=$(echo "$EXISTING" | jq -r '.result[0].id')
-  CURRENT_IP=$(echo "$EXISTING" | jq -r '.result[0].content')
+  local payload
+  payload=$(jq -n \
+    --arg name "$record_name" \
+    --arg ip   "$PUBLIC_IP" \
+    '{type:"A", name:$name, content:$ip, ttl:120, proxied:false}')
 
-  if [[ "$CURRENT_IP" == "$PUBLIC_IP" ]]; then
-    log "A record already points to $PUBLIC_IP — no update needed."
-  else
-    log "Updating A record $RECORD_ID ($CURRENT_IP → $PUBLIC_IP) …"
-    RESULT=$(cf_api PUT "/zones/$CLOUDFLARE_ZONE_ID/dns_records/$RECORD_ID" -d "$PAYLOAD")
-    if echo "$RESULT" | jq -e '.success' >/dev/null 2>&1; then
-      log "DNS record updated successfully."
+  if [[ "$record_count" -gt 0 ]]; then
+    local record_id current_ip
+    record_id=$(echo "$existing" | jq -r '.result[0].id')
+    current_ip=$(echo "$existing" | jq -r '.result[0].content')
+
+    if [[ "$current_ip" == "$PUBLIC_IP" ]]; then
+      log "A record $record_name already points to $PUBLIC_IP — no update needed."
     else
-      die "Failed to update DNS record: $(echo "$RESULT" | jq -r '.errors')"
+      log "Updating A record $record_name ($current_ip → $PUBLIC_IP) …"
+      local result
+      result=$(cf_api PUT "/zones/$CLOUDFLARE_ZONE_ID/dns_records/$record_id" -d "$payload")
+      if echo "$result" | jq -e '.success' >/dev/null 2>&1; then
+        log "DNS record $record_name updated successfully."
+      else
+        die "Failed to update DNS record $record_name: $(echo "$result" | jq -r '.errors')"
+      fi
+    fi
+  else
+    log "Creating new A record for $record_name → $PUBLIC_IP …"
+    local result
+    result=$(cf_api POST "/zones/$CLOUDFLARE_ZONE_ID/dns_records" -d "$payload")
+    if echo "$result" | jq -e '.success' >/dev/null 2>&1; then
+      log "DNS record $record_name created successfully."
+    else
+      die "Failed to create DNS record $record_name: $(echo "$result" | jq -r '.errors')"
     fi
   fi
-else
-  log "Creating new A record for $FQDN → $PUBLIC_IP …"
-  RESULT=$(cf_api POST "/zones/$CLOUDFLARE_ZONE_ID/dns_records" -d "$PAYLOAD")
-  if echo "$RESULT" | jq -e '.success' >/dev/null 2>&1; then
-    log "DNS record created successfully."
-  else
-    die "Failed to create DNS record: $(echo "$RESULT" | jq -r '.errors')"
-  fi
-fi
+}
 
 # ---------------------------------------------------------------------------
-# Wait for propagation (best-effort)
+# Create / update DNS records
+# ---------------------------------------------------------------------------
+# 1. Main A record: dev.example.com → PUBLIC_IP
+ensure_a_record "$FQDN"
+
+# 2. Wildcard A record: *.dev.example.com → PUBLIC_IP
+#    Required for Coder's subdomain-based port forwarding / app routing.
+WILDCARD_FQDN="*.${FQDN}"
+ensure_a_record "$WILDCARD_FQDN"
+
+# ---------------------------------------------------------------------------
+# Wait for propagation (best-effort — checks main record only)
 # ---------------------------------------------------------------------------
 log "Waiting for DNS propagation (up to 60 s) …"
 for i in $(seq 1 12); do
