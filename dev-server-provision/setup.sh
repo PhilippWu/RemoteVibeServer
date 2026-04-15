@@ -169,6 +169,11 @@ bash "$INFRA_DIR/agents.sh"
 # (databases, backend APIs, etc.) that need to be reachable from the
 # developer's machine.  We allow a generous range so tools like MongoDB
 # Compass, database GUIs, or direct API testing work without extra config.
+#
+# SECURITY NOTE: This is appropriate for a single-tenant dev server.
+# Services in this range are exposed WITHOUT authentication — developers
+# should bind services to localhost when auth is not configured, or use
+# Coder's wildcard-subdomain routing which goes through Coder's auth layer.
 # ---------------------------------------------------------------------------
 log "Opening development port range 3000–9999 in UFW …"
 if ufw status | grep -q "3000:9999/tcp"; then

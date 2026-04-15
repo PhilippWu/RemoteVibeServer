@@ -60,31 +60,43 @@ password, and GitHub tokens. Use `cloud-init.example.yaml` as a template.
 
 ```
 Internet
-  │  HTTPS (443)
+  │  HTTPS (443) + TCP (3000–9999)
   ▼
-Cloudflare (DNS proxy, DDoS protection)
+Cloudflare (DNS only — real IP exposed for direct TCP access)
   │
   ▼
 Hetzner VPS (Ubuntu)
-  ├── UFW firewall (22, 80, 443 only)
+  ├── UFW firewall (22, 80, 443, 3000–9999)
   ├── fail2ban
   ├── Caddy (reverse proxy + auto TLS)  :80/:443 → Coder :3000
+  │     └── handles *.FQDN wildcard subdomains (DNS-01 TLS via Cloudflare)
   ├── Coder server (systemd)  :3000 (localhost only)
+  │     ├── CODER_WILDCARD_ACCESS_URL=*.FQDN
   │     └── workspace provisioner (Docker provider)
   └── Docker
-        └── coder-<owner>-<workspace> containers
-              ├── code-server (VS Code)  :13337
-              ├── AI agents (Copilot CLI, OpenCode, etc.)
-              └── Coder agent (WebSocket back to Coder server)
+        ├── coder-<owner>-<workspace> containers
+        │     ├── code-server (VS Code)  :13337
+        │     ├── AI agents (Copilot CLI, OpenCode, etc.)
+        │     ├── Coder agent (WebSocket back to Coder server)
+        │     └── Docker socket (bind-mount for DooD)
+        └── Docker Compose sibling containers (started from workspace)
+              └── ports published directly on host (3000–9999 range)
 ```
 
 **Key design decisions:**
-- Coder listens only on `127.0.0.1:3000` — Caddy is the only public entry point
+- Coder listens only on `127.0.0.1:3000` — Caddy is the only public HTTPS entry point
+- `CODER_WILDCARD_ACCESS_URL=*.FQDN` enables subdomain-based port forwarding:
+  any workspace port is accessible at `https://<port>--<ws>--<owner>.FQDN`
 - Workspace containers use Docker-outside-Docker (DooD): the host Docker socket
-  is NOT mounted; `docker-ce-cli` inside the container is just for developer use
-- Cloudflare proxying is enabled (`proxied: true`) — the real server IP is hidden
+  is bind-mounted so `docker compose` runs sibling containers on the host
+- Docker Compose services publish ports directly on the host — UFW allows 3000–9999
+- Caddy uses a custom build with the Cloudflare DNS module for DNS-01 wildcard TLS
+- Cloudflare DNS records use `proxied: false` (DNS-only) so direct TCP access works
+  for non-HTTP tools (MongoDB Compass, database GUIs, etc.)
 - Secrets flow: `cloud-init.yaml` → `/etc/dev-server/env` (0600) → read by systemd
   unit and setup.sh scripts. Never in the repo.
+- **Security model:** This is a single-tenant dev server. Docker socket access and
+  the open port range are intentional trade-offs for developer convenience.
 
 ---
 
@@ -117,6 +129,7 @@ The template defines what every workspace container looks like.
 | `/workspace/template` | `/opt/dev-server-provision/coder` | rw | Template source — agents can edit & push |
 | `/run/secrets/coder-token` | `/etc/dev-server/coder-admin-token` | ro | Long-lived Coder admin API token |
 | `/run/secrets/agent-env` | `/etc/dev-server/agent-env` | ro | AI agent API keys |
+| `/var/run/docker.sock` | `/var/run/docker.sock` | rw | Docker socket for DooD — `docker compose` |
 
 ### Template-editing capability (for AI agents in workspaces)
 
@@ -232,15 +245,18 @@ Docker container can't reach the Coder server on the host.
 
 ---
 
-## Current Feature State (as of commit 2f359b5)
+## Current Feature State
 
 | Feature | Status |
 |---------|--------|
 | Cloud-init one-shot provisioning | ✅ |
-| Cloudflare DNS automation | ✅ |
+| Cloudflare DNS automation (incl. wildcard `*.FQDN`) | ✅ |
 | Caddy HTTPS + maintenance page | ✅ |
+| Caddy wildcard TLS via DNS-01 (Cloudflare DNS module) | ✅ |
 | Coder v2 install + admin user creation | ✅ |
+| Coder wildcard access URL (subdomain port forwarding) | ✅ |
 | Docker workspace image build | ✅ |
+| Docker socket mount (DooD — `docker compose` in workspace) | ✅ |
 | Coder template push on first boot | ✅ |
 | Long-lived admin token for workspace agents | ✅ |
 | VS Code in browser (code-server) | ✅ |
@@ -249,6 +265,7 @@ Docker container can't reach the Coder server on the host.
 | `REMOTEVIBE.md` AI agent context doc | ✅ |
 | `push-template.sh` non-interactive helper | ✅ |
 | Interactive configurator CLI | ✅ |
+| Dev port range open (UFW 3000–9999) | ✅ |
 
 ---
 

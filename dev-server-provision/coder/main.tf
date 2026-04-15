@@ -52,6 +52,10 @@ resource "coder_agent" "main" {
     # ── Fix Docker socket permissions for DooD ────────────────────────────
     # The bind-mounted /var/run/docker.sock may be owned by a GID that the
     # coder user is not a member of.  Detect and adjust at startup.
+    # SECURITY NOTE: chmod 0666 is a fallback that grants any container
+    # process Docker access.  This is acceptable in a single-tenant dev
+    # environment where the workspace owner is the only user.  Do NOT use
+    # this approach in shared / multi-tenant setups.
     if [ -S /var/run/docker.sock ]; then
       DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
       if ! id -G | tr ' ' '\n' | grep -qx "$DOCKER_GID"; then
@@ -269,6 +273,9 @@ resource "docker_container" "workspace" {
   # Docker socket — enables Docker-outside-Docker (DooD) workflows.
   # Services started via `docker compose` run as sibling containers on the
   # host, so their published ports are directly reachable on the server IP.
+  # SECURITY: This grants the workspace root-equivalent access to the host's
+  # Docker daemon.  Acceptable for a single-tenant dev server; do NOT use
+  # in shared / multi-tenant environments.
   volumes {
     container_path = "/var/run/docker.sock"
     host_path      = "/var/run/docker.sock"
