@@ -84,6 +84,14 @@ _CLOUD_INIT_TEMPLATE = textwrap.dedent("""\
           # ── OpenCode Provider Selection ────────────────────────────────────
           OPENCODE_PROVIDER={opencode_provider}
 
+          # ── Development Tools (comma-separated) ───────────────────────────
+          # Tools pre-installed in the workspace image.  Selecting "docker"
+          # also flips the workspace container to privileged mode and adds a
+          # persistent /var/lib/docker volume so dockerd works inside it.
+          # Supported: docker, node, python, go, rust, kubectl, helm,
+          #            aws, azure, gcloud
+          DEV_TOOLS={dev_tools}
+
       - path: /etc/dev-server/bootstrap.sh
         permissions: "0700"
         owner: root:root
@@ -192,6 +200,7 @@ def default_config() -> dict[str, Any]:
         "github_token": "",
         "codex_openai_auth_code": "",
         "opencode_provider": "",
+        "dev_tools": "docker,node,python",
     }
 
 
@@ -219,6 +228,7 @@ _RVS_KEY_ORDER: list[str] = [
     "github_token",
     "codex_openai_auth_code",
     "opencode_provider",
+    "dev_tools",
 ]
 
 

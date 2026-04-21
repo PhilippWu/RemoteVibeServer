@@ -215,6 +215,21 @@ _AGENT_CHOICES = [
     {"name": "OpenCode AI (multi-provider)", "value": "opencode"},
 ]
 
+_DEV_TOOL_CHOICES = [
+    {"name": "Docker + docker-compose (privileged container, /var/lib/docker volume)", "value": "docker"},
+    {"name": "Node.js 20 LTS + npm", "value": "node"},
+    {"name": "Python 3 + pip", "value": "python"},
+    {"name": "Go (latest stable)", "value": "go"},
+    {"name": "Rust (via rustup)", "value": "rust"},
+    {"name": "kubectl (Kubernetes CLI)", "value": "kubectl"},
+    {"name": "Helm (Kubernetes package manager)", "value": "helm"},
+    {"name": "AWS CLI v2", "value": "aws"},
+    {"name": "Azure CLI", "value": "azure"},
+    {"name": "Google Cloud SDK (gcloud)", "value": "gcloud"},
+]
+
+_DEV_TOOL_DEFAULTS = ["docker", "node", "python"]
+
 _OPENCODE_PROVIDER_CHOICES = [
     {"name": "OpenCode Zen (Recommended)", "value": "opencode-zen"},
     {"name": "OpenCode Go — Low cost subscription for everyone", "value": "opencode-go"},
@@ -599,7 +614,41 @@ def _ask_coder_admin_password(config: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 5 — Provider-specific options (Hetzner)
+# Step 5b — Development tools
+# ---------------------------------------------------------------------------
+
+def _ask_dev_tools(config: dict[str, Any]) -> None:
+    _heading("Development Tools")
+    print(
+        "  Choose tools to pre-install in every workspace.  Selecting "
+        f"{_BOLD}Docker{_RESET} also flips the\n"
+        "  workspace container into privileged mode and adds a persistent "
+        "/var/lib/docker volume so dockerd works inside it.\n"
+    )
+
+    # Pre-select from imported / previous value (comma-separated string)
+    imported_tools = [
+        t.strip()
+        for t in (config.get("dev_tools") or "").split(",")
+        if t.strip()
+    ]
+    default_selection = imported_tools if imported_tools else _DEV_TOOL_DEFAULTS
+
+    selected: list[str] = inquirer.checkbox(
+        message="Select dev tools (Space to toggle, Enter to confirm):",
+        choices=_DEV_TOOL_CHOICES,
+        default=default_selection,
+    ).execute()
+
+    config["dev_tools"] = ",".join(selected)
+    if selected:
+        _success(f"Dev tools: {', '.join(selected)}")
+    else:
+        _warn("No dev tools selected — workspaces will only contain the base image.")
+
+
+# ---------------------------------------------------------------------------
+# Step 6 — Provider-specific options (Hetzner)
 # ---------------------------------------------------------------------------
 
 def _ask_provider_options(provider: providers.Provider, deploy_config: dict[str, Any]) -> None:
@@ -781,6 +830,9 @@ def run() -> None:
 
         # 5. AI agents
         _ask_agents(config)
+
+        # 5b. Development tools
+        _ask_dev_tools(config)
 
         # 6. Provider options
         _ask_provider_options(provider, deploy_config)

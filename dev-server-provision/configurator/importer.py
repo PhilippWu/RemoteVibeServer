@@ -49,6 +49,7 @@ _ENV_VAR_TO_KEY: dict[str, str] = {
     "GITHUB_TOKEN": "github_token",
     "CODEX_OPENAI_AUTH_CODE": "codex_openai_auth_code",
     "OPENCODE_PROVIDER": "opencode_provider",
+    "DEV_TOOLS": "dev_tools",
 }
 
 # All known config keys (used to whitelist RVSconfig.yml keys).

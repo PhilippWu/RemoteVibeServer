@@ -84,6 +84,14 @@ write_files:
       #                   anthropic, google (leave empty for default)
       OPENCODE_PROVIDER=
 
+      # ── Development Tools (comma-separated) ───────────────────────────
+      # Tools pre-installed in every workspace.  Selecting "docker" also
+      # turns on privileged mode and a persistent /var/lib/docker volume
+      # so dockerd works inside the workspace container.
+      # Supported: docker, node, python, go, rust, kubectl, helm,
+      #            aws, azure, gcloud
+      DEV_TOOLS=docker,node,python
+
   - path: /etc/dev-server/bootstrap.sh
     permissions: "0700"
     owner: root:root

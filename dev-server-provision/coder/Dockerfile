@@ -3,17 +3,38 @@
 # Coder Workspace Image — RemoteVibeServer
 # =============================================================================
 # A feature-rich development container suitable for use as a Coder workspace
-# template.  Includes common development tools pre-installed.
+# template.  The set of tools installed is controlled by the DEV_TOOLS build
+# argument — a comma-separated list of tool keys.  Supported keys:
+#
+#   docker   → docker-ce engine + CLI + buildx + compose-plugin + standalone
+#              docker-compose binary, "coder" added to docker group, plus the
+#              /usr/local/bin/start-dockerd helper.  Requires the workspace
+#              container to be run with privileged: true (set in main.tf).
+#   node     → Node.js 20 LTS + npm
+#   python   → python3 + pip + venv (always pulled in by base packages too)
+#   go       → Go (latest stable) at /usr/local/go
+#   rust     → Rust toolchain via rustup (installed for the coder user)
+#   kubectl  → Kubernetes CLI
+#   helm     → Helm 3
+#   aws      → AWS CLI v2
+#   azure    → Azure CLI
+#   gcloud   → Google Cloud SDK
 #
 # Build:
-#   docker build -t remotevibe-workspace:latest .
+#   docker build --build-arg DEV_TOOLS=docker,node,python -t remotevibe-workspace:latest .
 # =============================================================================
 FROM codercom/enterprise-base:ubuntu
 
 USER root
 
+# DEV_TOOLS is a comma-separated list controlling the optional installs below.
+# A leading/trailing comma is added so simple substring matching ",x," works
+# regardless of position.
+ARG DEV_TOOLS=docker,node,python
+ENV DEV_TOOLS=${DEV_TOOLS}
+
 # ---------------------------------------------------------------------------
-# System packages
+# Base system packages (always installed)
 # ---------------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -34,13 +55,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client \
     gnupg \
     ca-certificates \
+    sudo \
+    apt-transport-https \
+    lsb-release \
     python3 \
     python3-pip \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# Docker CLI (for Docker-in-Docker / Docker-outside-Docker workflows)
+# Docker (engine + CLI + compose) — gated on DEV_TOOLS containing "docker"
+# Always install the CLI + compose-plugin so DooD use cases keep working when
+# the workspace is run without privileged mode.  The full engine + helper
+# script are only added when "docker" is selected.
 # ---------------------------------------------------------------------------
 RUN install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
@@ -50,30 +77,148 @@ RUN install -m 0755 -d /etc/apt/keyrings \
        https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
        > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
+    && if echo ",${DEV_TOOLS}," | grep -q ",docker,"; then \
+         apt-get install -y --no-install-recommends \
+           docker-ce docker-ce-cli containerd.io \
+           docker-buildx-plugin docker-compose-plugin ; \
+         curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-$(uname -m)" \
+           -o /usr/local/bin/docker-compose \
+         && chmod +x /usr/local/bin/docker-compose ; \
+         usermod -aG docker coder ; \
+       else \
+         apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin ; \
+       fi \
     && rm -rf /var/lib/apt/lists/*
 
-# ---------------------------------------------------------------------------
-# Node.js 20 LTS
-# ---------------------------------------------------------------------------
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# /usr/local/bin/start-dockerd — starts dockerd inside the workspace, falling
+# back to a minimal config if the container lacks full networking caps.
+# Always installed; the startup_script in main.tf only invokes it when docker
+# is enabled.
+RUN <<'EOF'
+set -e
+cat > /usr/local/bin/start-dockerd <<'SHEOF'
+#!/usr/bin/env bash
+# RemoteVibe: start the Docker daemon inside a Coder workspace container.
+# Tries full networking first; falls back to bridge=none/iptables=false when
+# the container lacks the required capabilities.
+set -e
+
+if ! command -v dockerd >/dev/null 2>&1; then
+  echo "[start-dockerd] dockerd not installed — skipping (DEV_TOOLS does not include 'docker')."
+  exit 0
+fi
+
+if pgrep -x dockerd >/dev/null 2>&1; then
+  echo "[start-dockerd] dockerd already running."
+  exit 0
+fi
+
+mkdir -p /var/lib/docker /var/run
+
+# First attempt: full networking.
+nohup dockerd >/var/log/dockerd.log 2>&1 &
+sleep 3
+if ! pgrep -x dockerd >/dev/null 2>&1; then
+  echo "[start-dockerd] full-networking dockerd failed — retrying with --bridge=none --iptables=false."
+  nohup dockerd --bridge=none --iptables=false >/var/log/dockerd.log 2>&1 &
+  sleep 3
+fi
+
+# Wait for the socket and relax permissions so the coder user can use docker without sudo.
+for i in $(seq 1 15); do
+  [ -S /var/run/docker.sock ] && break
+  sleep 1
+done
+if [ -S /var/run/docker.sock ]; then
+  chgrp docker /var/run/docker.sock 2>/dev/null || true
+  chmod 660 /var/run/docker.sock 2>/dev/null || true
+  echo "[start-dockerd] dockerd is up."
+else
+  echo "[start-dockerd] WARNING: dockerd did not produce /var/run/docker.sock — check /var/log/dockerd.log."
+fi
+SHEOF
+chmod +x /usr/local/bin/start-dockerd
+EOF
+
+# Allow the coder user to run start-dockerd without a password prompt.
+RUN echo "coder ALL=(ALL) NOPASSWD: /usr/local/bin/start-dockerd" \
+      > /etc/sudoers.d/coder-dockerd \
+    && chmod 0440 /etc/sudoers.d/coder-dockerd
 
 # ---------------------------------------------------------------------------
-# Go (latest stable)
+# Node.js 20 LTS — gated on DEV_TOOLS containing "node"
+# ---------------------------------------------------------------------------
+RUN if echo ",${DEV_TOOLS}," | grep -q ",node,"; then \
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+      && apt-get install -y nodejs \
+      && rm -rf /var/lib/apt/lists/* ; \
+    fi
+
+# ---------------------------------------------------------------------------
+# Go (latest stable) — gated on DEV_TOOLS containing "go"
 # ---------------------------------------------------------------------------
 ARG GO_VERSION=1.22.2
-RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
-    | tar -C /usr/local -xz
+RUN if echo ",${DEV_TOOLS}," | grep -q ",go,"; then \
+      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-$(dpkg --print-architecture).tar.gz" \
+        | tar -C /usr/local -xz ; \
+    fi
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # ---------------------------------------------------------------------------
-# Rust (via rustup, for coder user)
+# kubectl — gated on DEV_TOOLS containing "kubectl"
+# ---------------------------------------------------------------------------
+RUN if echo ",${DEV_TOOLS}," | grep -q ",kubectl,"; then \
+      curl -fsSLo /usr/local/bin/kubectl \
+        "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/$(dpkg --print-architecture)/kubectl" \
+      && chmod +x /usr/local/bin/kubectl ; \
+    fi
+
+# ---------------------------------------------------------------------------
+# Helm — gated on DEV_TOOLS containing "helm"
+# ---------------------------------------------------------------------------
+RUN if echo ",${DEV_TOOLS}," | grep -q ",helm,"; then \
+      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash ; \
+    fi
+
+# ---------------------------------------------------------------------------
+# AWS CLI v2 — gated on DEV_TOOLS containing "aws"
+# ---------------------------------------------------------------------------
+RUN if echo ",${DEV_TOOLS}," | grep -q ",aws,"; then \
+      arch="$(uname -m)" ; \
+      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${arch}.zip" -o /tmp/awscli.zip \
+      && unzip -q /tmp/awscli.zip -d /tmp \
+      && /tmp/aws/install \
+      && rm -rf /tmp/awscli.zip /tmp/aws ; \
+    fi
+
+# ---------------------------------------------------------------------------
+# Azure CLI — gated on DEV_TOOLS containing "azure"
+# ---------------------------------------------------------------------------
+RUN if echo ",${DEV_TOOLS}," | grep -q ",azure,"; then \
+      curl -fsSL https://aka.ms/InstallAzureCLIDeb | bash ; \
+    fi
+
+# ---------------------------------------------------------------------------
+# Google Cloud SDK — gated on DEV_TOOLS containing "gcloud"
+# ---------------------------------------------------------------------------
+RUN if echo ",${DEV_TOOLS}," | grep -q ",gcloud,"; then \
+      echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+        > /etc/apt/sources.list.d/google-cloud-sdk.list \
+      && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+         | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+      && apt-get update \
+      && apt-get install -y --no-install-recommends google-cloud-cli \
+      && rm -rf /var/lib/apt/lists/* ; \
+    fi
+
+# ---------------------------------------------------------------------------
+# Rust (via rustup, for coder user) — gated on DEV_TOOLS containing "rust"
 # ---------------------------------------------------------------------------
 USER coder
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --default-toolchain stable
+RUN if echo ",${DEV_TOOLS}," | grep -q ",rust,"; then \
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --default-toolchain stable ; \
+    fi
 ENV PATH="/home/coder/.cargo/bin:${PATH}"
 
 # ---------------------------------------------------------------------------

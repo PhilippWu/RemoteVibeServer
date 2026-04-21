@@ -63,6 +63,10 @@ resource "coder_agent" "main" {
         || echo "export CODER_SESSION_TOKEN=$_tok" >> ~/.bashrc
       echo "[remotevibe] Coder CLI configured — ~/push-template.sh available"
     fi
+    # ── Start Docker daemon (no-op when DEV_TOOLS does not include "docker") ─
+    if command -v start-dockerd >/dev/null 2>&1; then
+      sudo start-dockerd || echo "[remotevibe] WARNING: start-dockerd failed — Docker inside the workspace may not work."
+    fi
     # ── Start code-server (VS Code in browser) ──────────────────────────────
     code-server \
       --auth none \
@@ -180,6 +184,25 @@ resource "docker_volume" "home_volume" {
   }
 }
 
+# Persistent Docker data volume so images / containers / volumes built inside
+# the workspace survive restarts.  Used only when Docker is enabled in the
+# workspace image (DEV_TOOLS contains "docker"); otherwise the volume sits
+# unused at negligible cost.
+resource "docker_volume" "docker_data_volume" {
+  name = "coder-${data.coder_workspace.me.id}-docker"
+  lifecycle {
+    ignore_changes = all
+  }
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+}
+
 # Use locally-built image — keep_locally prevents pulling from Docker Hub
 resource "docker_image" "workspace" {
   name         = "remotevibe-workspace:latest"
@@ -191,6 +214,11 @@ resource "docker_container" "workspace" {
   image    = docker_image.workspace.image_id
   name     = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}"
   hostname = data.coder_workspace.me.name
+
+  # Required so dockerd can start inside the workspace (Docker dev-tool support).
+  # The container bounding set must include CAP_SYS_ADMIN / CAP_NET_ADMIN —
+  # privileged mode is the only way to grant these from a non-root userns.
+  privileged = true
 
   # replace() ensures the agent can reach Coder even when the access URL uses localhost/127.0.0.1
   entrypoint = ["sh", "-c", replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal")]
@@ -210,6 +238,13 @@ resource "docker_container" "workspace" {
   volumes {
     container_path = "/home/coder"
     volume_name    = docker_volume.home_volume.name
+    read_only      = false
+  }
+
+  # Persistent Docker data — pulled images and containers survive restarts.
+  volumes {
+    container_path = "/var/lib/docker"
+    volume_name    = docker_volume.docker_data_volume.name
     read_only      = false
   }
 

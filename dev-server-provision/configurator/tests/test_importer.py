@@ -43,6 +43,7 @@ _CLOUD_INIT_SAMPLE = textwrap.dedent("""\
           GITHUB_TOKEN=ghp_testtoken
           CODEX_OPENAI_AUTH_CODE=
           OPENCODE_PROVIDER=opencode-zen,github-copilot
+          DEV_TOOLS=docker,node,python,kubectl
 
       - path: /etc/dev-server/bootstrap.sh
         permissions: "0700"
@@ -71,6 +72,7 @@ _RVS_CONFIG_SAMPLE = textwrap.dedent("""\
     github_token: "ghp_testtoken"
     codex_openai_auth_code: ""
     opencode_provider: "opencode-zen,github-copilot"
+    dev_tools: "docker,node,python,kubectl"
 """)
 
 
@@ -127,6 +129,10 @@ class TestParseCloudInit(unittest.TestCase):
     def test_opencode_provider(self):
         self.assertEqual(parse_cloud_init(self.path)["opencode_provider"],
                          "opencode-zen,github-copilot")
+
+    def test_dev_tools(self):
+        self.assertEqual(parse_cloud_init(self.path)["dev_tools"],
+                         "docker,node,python,kubectl")
 
     def test_empty_key_preserved(self):
         result = parse_cloud_init(self.path)
@@ -185,6 +191,10 @@ class TestParseRvsConfig(unittest.TestCase):
     def test_multivalue_opencode_provider(self):
         self.assertEqual(parse_rvs_config(self.path)["opencode_provider"],
                          "opencode-zen,github-copilot")
+
+    def test_dev_tools(self):
+        self.assertEqual(parse_rvs_config(self.path)["dev_tools"],
+                         "docker,node,python,kubectl")
 
     def test_escaped_double_quote(self):
         content = 'domain: "ex\\"ample.com"\n'

@@ -17,6 +17,7 @@ class TestDefaultConfig(unittest.TestCase):
             "google_api_key", "github_token",
             "codex_openai_auth_code",
             "opencode_provider",
+            "dev_tools",
         ]
         for key in required:
             self.assertIn(key, config, f"Missing key: {key}")
@@ -173,6 +174,20 @@ class TestGenerateCloudInit(unittest.TestCase):
         ))
         self.assertIn("OPENCODE_PROVIDER=opencode-zen,openai,anthropic", result)
 
+    def test_dev_tools_default(self):
+        result = generate_cloud_init(self._sample_config())
+        self.assertIn("DEV_TOOLS=docker,node,python", result)
+
+    def test_dev_tools_custom(self):
+        result = generate_cloud_init(self._sample_config(
+            dev_tools="docker,node,python,kubectl,helm",
+        ))
+        self.assertIn("DEV_TOOLS=docker,node,python,kubectl,helm", result)
+
+    def test_dev_tools_empty(self):
+        result = generate_cloud_init(self._sample_config(dev_tools=""))
+        self.assertIn("DEV_TOOLS=", result)
+
 
 class TestGenerateRvsConfig(unittest.TestCase):
     """Tests for generate_rvs_config()."""
@@ -229,6 +244,16 @@ class TestGenerateRvsConfig(unittest.TestCase):
             opencode_provider="opencode-zen,openai",
         ))
         self.assertIn('opencode_provider: "opencode-zen,openai"', result)
+
+    def test_dev_tools_default(self):
+        result = generate_rvs_config(self._sample_config())
+        self.assertIn('dev_tools: "docker,node,python"', result)
+
+    def test_dev_tools_custom(self):
+        result = generate_rvs_config(self._sample_config(
+            dev_tools="docker,kubectl,helm,aws",
+        ))
+        self.assertIn('dev_tools: "docker,kubectl,helm,aws"', result)
 
     def test_trailing_newline(self):
         result = generate_rvs_config(self._sample_config())

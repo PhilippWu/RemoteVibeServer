@@ -165,8 +165,11 @@ bash "$INFRA_DIR/agents.sh"
 # 7. Build default Coder template image (optional, non-blocking)
 # ---------------------------------------------------------------------------
 if [[ -f "$CODER_DIR/Dockerfile" ]]; then
-  log "Building default workspace Docker image …"
-  docker build -t remotevibe-workspace:latest "$CODER_DIR" || log "WARN: Workspace image build failed (non-fatal)"
+  log "Building default workspace Docker image (DEV_TOOLS=${DEV_TOOLS:-docker,node,python}) …"
+  docker build \
+    --build-arg "DEV_TOOLS=${DEV_TOOLS:-docker,node,python}" \
+    -t remotevibe-workspace:latest "$CODER_DIR" \
+    || log "WARN: Workspace image build failed (non-fatal)"
 fi
 
 # ---------------------------------------------------------------------------

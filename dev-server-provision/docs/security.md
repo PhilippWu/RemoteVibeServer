@@ -135,8 +135,16 @@ MaxAuthTries 3
 ## Docker Security
 
 - Docker is installed from the **official Docker repository** (not distro packages)
-- Coder workspaces run as **unprivileged containers** by default
 - The workspace image uses `codercom/enterprise-base` which runs as a non-root user
+  (`coder`, uid 1000) inside the container
+- **Workspace containers run with `privileged: true`** so that `dockerd` can be
+  started inside them when the user opts into the `docker` dev-tool.  This is a
+  conscious trade-off: dockerd requires `CAP_SYS_ADMIN` / `CAP_NET_ADMIN`, which
+  are not in the default container bounding set.  The security boundary is
+  therefore the **workspace owner** — anyone with workspace access effectively
+  has root on the host.  Only grant Coder workspaces to trusted users.
+- If you do not need Docker inside workspaces, deselect it in the configurator;
+  a future release may also expose a non-privileged template variant.
 
 ## Audit & Observability
 
@@ -158,4 +166,4 @@ MaxAuthTries 3
 | Unauthorized port access            | UFW denies all except 22, 80, 443                    |
 | Certificate expiry                  | Caddy auto-renews certificates                       |
 | Env file exposure                   | Mode 0600, root-only access                          |
-| Compromised workspace container     | Unprivileged containers, no host mounts by default   |
+| Compromised workspace container     | Workspace owner is fully trusted; container runs `privileged: true` for Docker support — only grant to trusted users |
