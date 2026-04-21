@@ -65,7 +65,8 @@ resource "coder_agent" "main" {
     fi
     # ── Start Docker daemon (no-op when DEV_TOOLS does not include "docker") ─
     if command -v start-dockerd >/dev/null 2>&1; then
-      sudo start-dockerd || echo "[remotevibe] WARNING: start-dockerd failed — Docker inside the workspace may not work."
+      sudo start-dockerd \
+        || echo "[remotevibe] WARNING: start-dockerd failed — Docker inside the workspace may not work. Check /var/log/dockerd.log for details and ensure the workspace container is running with privileged: true."
     fi
     # ── Start code-server (VS Code in browser) ──────────────────────────────
     code-server \
